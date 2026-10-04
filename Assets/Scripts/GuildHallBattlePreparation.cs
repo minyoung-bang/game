@@ -5,57 +5,72 @@ public sealed partial class GuildHallRuntime
 {
     private sealed class BattleRequest
     {
-        public string title, description;
-        public int recommendedLevel, reward, acceptedDay = -1;
-        public bool prepared;
+        public string title, description, region;
+        public int unlockGuildLevel, recommendedLevel, partySize, waves, reward, guildExperience, heroExperience, expense, acceptedDay = -1;
+        public bool prepared, persistentRegion;
+        public readonly string[] enemyKinds;
         public readonly List<int> party = new List<int>();
-        public BattleRequest(string title, string description, int level, int reward)
-        { this.title = title; this.description = description; recommendedLevel = level; this.reward = reward; }
+        public BattleRequest(string title, string description, int unlock, int level, int partySize, int waves, int reward, int guildExperience, int heroExperience, int expense, string region = "", bool persistentRegion = true, params string[] enemyKinds)
+        {
+            this.title = title; this.description = description; this.region = region; this.persistentRegion = persistentRegion;
+            this.enemyKinds = enemyKinds ?? new string[0];
+            unlockGuildLevel = unlock; recommendedLevel = level;
+            this.partySize = partySize; this.waves = waves; this.reward = reward; this.guildExperience = guildExperience;
+            this.heroExperience = heroExperience; this.expense = expense;
+        }
     }
 
     private readonly BattleRequest[] battleRequests =
     {
-        new BattleRequest("숲길의 고블린", "상인들의 길을 막은 고블린 무리를 토벌해 주세요.\n목표: 숲길의 적을 처치하고 교역로 확보", 2, 60),
-        new BattleRequest("폐광의 수상한 소리", "폐광에 둥지를 튼 마물을 몰아내야 합니다.\n목표: 폐광 내부를 조사하고 마물 토벌", 3, 90),
-        new BattleRequest("농장을 습격한 늑대", "밤마다 가축을 노리는 늑대 무리가 나타납니다.\n목표: 농장 주변의 늑대 무리 격퇴", 2, 50)
+        new BattleRequest("깊은 숲의 슬라임 퇴치", "깊은 숲의 길목을 막은 슬라임 무리를 처치해 탐사로를 확보하세요.", 1, 1, 2, 1, 60, 25, 49, 0, "깊은 숲", true, "숲 슬라임"),
+        new BattleRequest("돌아오지 않는 조사대", "조사대의 흔적을 찾고 이동로를 막은 마물을 처치하세요.", 2, 3, 2, 2, 90, 35, 62, 0, "안개 늪", true, "독두꺼비", "늪 괴물"),
+        new BattleRequest("잠들지 못한 수호자", "조사대를 공격하는 유적 수호자를 잠재우세요.", 3, 5, 3, 2, 125, 50, 78, 0, "고대 폐허", true, "망령", "해골 병사", "유적 수호자"),
+        new BattleRequest("끊긴 협곡길", "길목을 점거한 하피 무리를 몰아내 통행로를 다시 여세요.", 4, 7, 3, 2, 165, 65, 96, 0, "바람의 협곡", true, "하피", "암석 도마뱀"),
+        new BattleRequest("꺼지지 않는 탑의 빛", "폐탑의 마력 누출 원인을 조사하고 폭주한 장치를 멈추세요.", 5, 9, 3, 3, 210, 80, 116, 0, "폐탑", true, "마도 인형", "폭주한 마력체"),
+        new BattleRequest("눈 속의 구조 신호", "실종된 운송대의 신호를 따라가 생존자를 확보하세요.", 6, 11, 4, 3, 260, 100, 140, 0, "얼어붙은 고개", true, "서리 정령", "눈 골렘"),
+        new BattleRequest("변경의 봉화", "봉화가 켜지기 전에 정찰대를 저지하고 요새의 위협을 확인하세요.", 8, 15, 4, 3, 360, 140, 195, 0, "마왕군 변경 요새", true, "마왕군 정찰병", "마왕군 지휘관")
     };
     private bool boardBattleTab;
     private bool battlePreparationOpen;
-    private int selectedBattleRequest = -1;
     private int selectedPreparationCategory;
     private int selectedCraftItem = -1;
     private Vector2 craftScrollPosition;
-    private string battleNotice = "";
 
     private void DrawBattleRequestBoard()
     {
-        GUI.Label(new Rect(68, 402, 1768, 42), "전투 의뢰 · 수락 후 밤에 바 안쪽 길드장을 눌러 소속 용사 최대 4명을 편성하세요.", labelStyle);
+        GUI.Label(new Rect(68, 402, 1768, 42), "전투 의뢰 · 수락 후 저녁에 지도를 열어 지역을 선택하고 길드원 1~4명을 편성하세요.", labelStyle);
         bool activeRequestExists = false;
         foreach (BattleRequest accepted in battleRequests)
             if (accepted.acceptedDay >= 0) { activeRequestExists = true; break; }
+        Rect requestView = new Rect(68, 458, 1768, 428);
+        battleBoardScrollPosition = GUI.BeginScrollView(requestView, battleBoardScrollPosition,
+            new Rect(0, 0, 1744, Mathf.Max(428, battleRequests.Length * 126)), false, true);
         int row = 0;
         foreach (BattleRequest request in battleRequests)
         {
-            float y = 458 + row++ * 126;
-            GUI.Box(new Rect(68, y, 1768, 110), "", panelStyle);
-            GUI.Label(new Rect(90, y + 8, 1200, 42), request.title + " · 권장 레벨 " + request.recommendedLevel + " · 보수 " + request.reward + " G", headingStyle);
-            GUI.Label(new Rect(90, y + 54, 1200, 44), request.description.Split('\n')[0], labelStyle);
-            GUI.enabled = request.acceptedDay < 0 && !activeRequestExists;
-            string buttonText = request.acceptedDay >= 0 ? "수락 완료 · 진행 중" : activeRequestExists ? "다른 전투 의뢰 진행 중" : "수락";
-            if (GUI.Button(new Rect(1408, y + 26, 404, 58), buttonText, buttonStyle))
+            float y = row++ * 126;
+            GUI.Box(new Rect(0, y, 1740, 110), "", panelStyle);
+            GUI.Label(new Rect(22, y + 6, 1290, 42), request.title + " · 권장 Lv." + request.recommendedLevel + " · 보상 " + request.reward + " G · 길드 Lv." + request.unlockGuildLevel, headingStyle);
+            GUI.Label(new Rect(22, y + 53, 1290, 46), request.description + " (" + request.waves + "전투 · 준비금 " + request.expense + " G)", labelStyle);
+            bool unlocked = guildLevel >= request.unlockGuildLevel;
+            GUI.enabled = unlocked && request.acceptedDay < 0 && !activeRequestExists;
+            string buttonText = !unlocked ? "길드 Lv." + request.unlockGuildLevel + " 해금" : request.acceptedDay >= 0 ? "수락 완료 · 진행 중" : activeRequestExists ? "다른 전투 의뢰 진행 중" : "수락";
+            if (GUI.Button(new Rect(1340, y + 26, 390, 58), buttonText, buttonStyle))
             {
                 if (request.acceptedDay < 0)
                 {
                     request.acceptedDay = day;
                     activeRequestExists = true;
-                    dayNotice = request.title + " 수락 완료. 밤에 길드장을 눌러 전투를 준비하세요.";
+                    if (request.persistentRegion && !string.IsNullOrEmpty(request.region)) unlockedWorldRegions.Add(request.region);
+                    dayNotice = request.title + " 수락 완료. 저녁에 지도에서 " + request.region + "을(를) 선택하세요.";
                 }
             }
             GUI.enabled = true;
         }
+        GUI.EndScrollView();
         if (activeRequestExists)
             GUI.Label(new Rect(90, 842, 1600, 48), "전투 의뢰는 한 번에 하나만 수락할 수 있습니다. 진행 중인 의뢰를 마치면 다른 의뢰를 받을 수 있습니다.", labelStyle);
-        if (row == 0) GUI.Label(new Rect(90, 470, 1600, 80), "게시판에 새로운 전투 의뢰가 없습니다. 수락한 의뢰는 길드장이 보관합니다.", labelStyle);
+        if (row == 0) GUI.Label(new Rect(90, 470, 1600, 80), "게시판에 새로운 전투 의뢰가 없습니다.", labelStyle);
     }
 
     private bool DrawGuildmasterHotspot()
@@ -68,16 +83,12 @@ public sealed partial class GuildHallRuntime
         float ox = (Screen.width - 1920f * scale) * .5f;
         float oy = (Screen.height - 1080f * scale) * .5f;
         Rect tag = new Rect((screen.center.x - ox) / scale - 176, (screen.y - oy) / scale - 52, 352, 46);
-        GUI.Box(tag, "제작 · 전투 의뢰 준비", buttonStyle);
+        GUI.Box(tag, "아이템 제작", buttonStyle);
         if (Event.current.type == EventType.MouseDown && Event.current.button == 0)
         {
             battlePreparationOpen = true;
-            battleNotice = "";
             selectedPreparationCategory = 0;
             selectedCraftItem = -1;
-            selectedBattleRequest = -1;
-            for (int i = 0; i < battleRequests.Length; i++)
-                if (battleRequests[i].acceptedDay >= 0) { selectedBattleRequest = i; break; }
             presentation.SetHovered(-1);
             presentation.SetGuildmasterHovered(false);
             Event.current.Use();
@@ -90,7 +101,7 @@ public sealed partial class GuildHallRuntime
     {
         PixelRect(new Rect(0, 0, 1920, 1080), new Color(.015f, .02f, .04f, .83f));
         GUI.Box(new Rect(160, 100, 1600, 890), "", panelStyle);
-        GUI.Label(new Rect(208, 126, 1200, 64), "길드 작업대", headingStyle);
+        GUI.Label(new Rect(208, 126, 1200, 64), "길드 작업대 · 도적 장비 제작 가능", headingStyle);
         if (GUI.Button(new Rect(1670, 122, 58, 58), "×", buttonStyle) ||
             (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape))
         {
@@ -106,51 +117,60 @@ public sealed partial class GuildHallRuntime
             return;
         }
 
-        string[] categories = { "음식 제작", "무기 제작", "방어구 제작", "전투 의뢰 준비" };
+        string[] categories = { "음식 제작", "무기 제작", "방어구 제작" };
         for (int i = 0; i < categories.Length; i++)
         {
             int category = i;
-            if (GUI.Button(new Rect(208 + i * 382, 204, 360, 62), categories[i], selectedPreparationCategory == i ? selectedTabStyle : tabStyle))
+            if (GUI.Button(new Rect(208 + i * 510, 204, 488, 62), categories[i], selectedPreparationCategory == i ? selectedTabStyle : tabStyle))
             {
                 selectedPreparationCategory = category;
                 selectedCraftItem = -1;
             }
         }
-        if (selectedPreparationCategory < 3)
-        {
-            DrawProductionCategory();
-            return;
-        }
-        DrawBattlePartyCategory();
+        DrawProductionCategory();
     }
 
     private void DrawProductionCategory()
     {
         Rect materialView = new Rect(208, 286, 1504, 80);
-        craftMaterialScrollPosition = GUI.BeginScrollView(materialView, craftMaterialScrollPosition, new Rect(0, 0, materialNames.Length * 250, 80), true, false);
-        for (int i = 0; i < materialNames.Length; i++)
+        var usedMaterials = new List<int>();
+        int recipeOffset = 0;
+        for (int c = 0; c < selectedPreparationCategory; c++) recipeOffset += inventory[c].Length;
+        for (int m = 0; m < materialNames.Length; m++)
+            for (int item = 0; item < inventory[selectedPreparationCategory].Length; item++)
+                if (recipes[recipeOffset + item][m] > 0) { usedMaterials.Add(m); break; }
+        craftMaterialScrollPosition = GUI.BeginScrollView(materialView, craftMaterialScrollPosition, new Rect(0, 0, usedMaterials.Count * 250, 68), true, false);
+        for (int slot = 0; slot < usedMaterials.Count; slot++)
         {
-            float x = i * 250;
+            int i = usedMaterials[slot];
+            float x = slot * 250;
             GUI.Box(new Rect(x, 0, 236, 68), "", panelStyle);
             DrawMaterialIcon(new Rect(x + 6, 5, 58, 58), i);
-            GUI.Label(new Rect(x + 70, 7, 158, 28), materialNames[i], labelStyle);
+            GUI.Label(new Rect(x + 70, 7, 158, 28), guildLevel >= materialUnlockLevels[i] ? materialNames[i] : "미해금 재료", labelStyle);
             GUI.Label(new Rect(x + 70, 35, 158, 27), "보유 " + materials[i] + "개", headingStyle);
         }
         GUI.EndScrollView();
 
         ShopItem[] items = inventory[selectedPreparationCategory];
         Rect view = new Rect(190, 386, 1540, 504);
-        craftScrollPosition = GUI.BeginScrollView(view, craftScrollPosition, new Rect(0, 0, 1530, 574), false, true);
+        const float columnStep = 378f;
+        const float rowStep = 180f;
+        int rowCount = Mathf.CeilToInt(items.Length / 4f);
+        craftScrollPosition = GUI.BeginScrollView(view, craftScrollPosition, new Rect(0, 0, 1530, Mathf.Max(504, 18 + rowCount * rowStep)), false, true);
         for (int i = 0; i < items.Length; i++)
         {
-            float x = 18 + (i % 3) * 510, y = 12 + (i / 3) * 184;
-            Rect card = new Rect(x, y, 478, 170);
+            float x = 10 + (i % 4) * columnStep, y = 8 + (i / 4) * rowStep;
+            Rect card = new Rect(x, y, 362, 166);
             GUI.Box(card, "", cardStyle);
-            DrawPixelItemIcon(new Rect(x + 8, y + 15, 146, 140), items[i].icon);
-            GUI.Label(new Rect(x + 162, y + 25, 302, 56), items[i].name, headingStyle);
-            string tier = i < 3 ? "저가" : i < 6 ? "중가" : "고가";
-            GUI.Label(new Rect(x + 162, y + 93, 302, 48), tier + " · " + items[i].price + " G · 재고 " + items[i].stock + "개", labelStyle);
+            DrawPixelItemIcon(new Rect(x + 8, y + 22, 104, 120), items[i].icon);
+            GUI.Label(new Rect(x + 120, y + 20, 232, 62), items[i].name, headingStyle);
+            string tier = items[i].productionCost == 0 ? "저가" : items[i].productionCost == 1 ? "중가" : "고가";
+            string profession = selectedPreparationCategory == 0 ? "" : items[i].allowedJob + " · ";
+            string availability = guildLevel >= items[i].unlockGuildLevel ? "재고 " + items[i].stock + "개" : "길드 Lv." + items[i].unlockGuildLevel + " 해금";
+            GUI.Label(new Rect(x + 120, y + 88, 232, 54), profession + tier + " · " + items[i].price + " G\n" + availability, labelStyle);
+            GUI.enabled = guildLevel >= items[i].unlockGuildLevel;
             if (GUI.Button(card, GUIContent.none, hoverStyle)) selectedCraftItem = i;
+            GUI.enabled = true;
         }
         GUI.EndScrollView();
         GUI.Label(new Rect(208, 900, 1480, 44), "아이템을 선택하면 필요한 재료와 보유량을 확인한 뒤 제작할 수 있습니다.", labelStyle);
@@ -165,14 +185,16 @@ public sealed partial class GuildHallRuntime
         int category = selectedPreparationCategory;
         int itemIndex = selectedCraftItem;
         ShopItem item = inventory[category][itemIndex];
-        int[] cost = recipes[category * 9 + itemIndex];
+        int recipeIndex = itemIndex;
+        for (int c = 0; c < category; c++) recipeIndex += inventory[c].Length;
+        int[] cost = recipes[recipeIndex];
         PixelRect(new Rect(160, 100, 1600, 890), new Color(.01f, .015f, .03f, .88f));
         Rect detail = new Rect(390, 300, 1140, 500);
         GUI.Box(detail, "", panelStyle);
         GUI.Label(new Rect(444, 328, 920, 60), item.name + " 제작", headingStyle);
         if (GUI.Button(new Rect(1430, 318, 58, 58), "×", buttonStyle)) { selectedCraftItem = -1; return; }
         GUI.Label(new Rect(444, 402, 1000, 48), "필요 재료 · 필요 수량 / 현재 보유 수량", labelStyle);
-        bool canCraft = true;
+        bool canCraft = guildLevel >= item.unlockGuildLevel && guildGold >= item.productionCost;
         int line = 0;
         for (int i = 0; i < cost.Length; i++)
         {
@@ -183,11 +205,12 @@ public sealed partial class GuildHallRuntime
             GUI.Label(new Rect(470 + line % 2 * 500, 468 + line / 2 * 58, 470, 48), status, headingStyle);
             line++;
         }
-        GUI.Label(new Rect(444, 630, 1000, 44), "제작하면 재료를 사용하고 판매 재고가 1개 늘어납니다.", labelStyle);
+        GUI.Label(new Rect(444, 630, 1000, 44), "제작 비용 " + item.productionCost + " G · 제작하면 재료와 골드를 사용하고 판매 재고가 1개 늘어납니다.", labelStyle);
         GUI.enabled = canCraft;
         if (GUI.Button(new Rect(700, 700, 270, 66), canCraft ? "제작하기" : "재료가 부족합니다", buttonStyle))
         {
             for (int i = 0; i < cost.Length; i++) materials[i] -= cost[i];
+            guildGold -= item.productionCost;
             item.stock++;
             dayNotice = item.name + " 제작 완료. 판매 재고가 1개 늘었습니다.";
             selectedCraftItem = -1;
@@ -196,58 +219,5 @@ public sealed partial class GuildHallRuntime
         if (GUI.Button(new Rect(1010, 700, 230, 66), "취소", tabStyle)) selectedCraftItem = -1;
     }
 
-    private void DrawBattlePartyCategory()
-    {
-        int row = 0;
-        for (int i = 0; i < battleRequests.Length; i++)
-        {
-            BattleRequest candidate = battleRequests[i];
-            if (candidate.acceptedDay < 0) continue;
-            if (GUI.Button(new Rect(208, 286 + row++ * 110, 428, 88), candidate.title + (candidate.prepared ? "\n편성 완료" : "\n편성 대기"), i == selectedBattleRequest ? selectedTabStyle : tabStyle))
-            { selectedBattleRequest = i; battleNotice = ""; }
-        }
-        if (selectedBattleRequest < 0 || selectedBattleRequest >= battleRequests.Length)
-        {
-            GUI.Label(new Rect(700, 300, 980, 150), "수락한 전투 의뢰가 없습니다.\n낮에 마을의 의뢰 게시판에서 전투 의뢰를 수락하세요.", headingStyle);
-            return;
-        }
-
-        BattleRequest request = battleRequests[selectedBattleRequest];
-        request.party.RemoveAll(index => index < 0 || index >= guests.Count || !guests[index].guildMember);
-        GUI.Label(new Rect(700, 286, 990, 52), request.title, headingStyle);
-        GUI.Label(new Rect(700, 342, 990, 54), "권장 레벨 " + request.recommendedLevel + " · 성공 보수 " + request.reward + " G · 선택 " + request.party.Count + "/4명", labelStyle);
-        GUI.Label(new Rect(700, 402, 990, 48), request.description, labelStyle);
-        int memberRow = 0;
-        for (int i = 0; i < guests.Count; i++)
-        {
-            Guest member = guests[i];
-            if (!member.guildMember) continue;
-            float x = 700 + memberRow % 2 * 494, y = 474 + memberRow / 2 * 126;
-            memberRow++;
-            bool chosen = request.party.Contains(i);
-            GUI.Box(new Rect(x, y, 470, 112), "", chosen ? selectedTabStyle : panelStyle);
-            DrawGuestPortrait(new Rect(x + 8, y + 8, 90, 96), i);
-            GUI.Label(new Rect(x + 112, y + 8, 340, 42), member.name + " · Lv." + member.level, headingStyle);
-            GUI.Label(new Rect(x + 112, y + 53, 340, 44), member.role + (chosen ? " · 선택됨" : ""), labelStyle);
-            GUI.enabled = chosen || request.party.Count < 4;
-            if (GUI.Button(new Rect(x, y, 470, 112), GUIContent.none, hoverStyle))
-            {
-                if (chosen) request.party.Remove(i);
-                else if (request.party.Count < 4) request.party.Add(i);
-                request.prepared = false;
-                battleNotice = "편성이 변경되었습니다. 준비 완료를 눌러 확정하세요.";
-            }
-            GUI.enabled = true;
-        }
-        if (memberRow == 0) GUI.Label(new Rect(700, 474, 980, 70), "먼저 용사의 호감도를 3까지 올려 길드원으로 영입하세요.", labelStyle);
-        GUI.Label(new Rect(700, 846, 990, 54), request.party.Count == 4 ? "최대 4명입니다. 선택한 용사를 해제하면 교체할 수 있어요." : "함께 갈 길드원을 선택하세요. 다시 누르면 선택이 해제됩니다.", labelStyle);
-        GUI.enabled = request.party.Count > 0 && request.party.Count <= 4;
-        if (GUI.Button(new Rect(1324, 908, 364, 58), request.prepared ? "편성 저장 완료" : "준비 완료", buttonStyle))
-        {
-            request.prepared = true;
-            battleNotice = "의뢰에 선택한 " + request.party.Count + "명의 편성을 저장했습니다.";
-        }
-        GUI.enabled = true;
-        GUI.Label(new Rect(208, 908, 1090, 58), battleNotice, labelStyle);
-    }
+    private Vector2 battleBoardScrollPosition;
 }

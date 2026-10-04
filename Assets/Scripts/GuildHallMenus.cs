@@ -8,6 +8,9 @@ public sealed partial class GuildHallRuntime
     private int textSizeStep;
     private float gameVolume = 1f;
     private Vector2 inventoryScrollPosition;
+#if UNITY_EDITOR
+    private bool developmentToolsOpen;
+#endif
 
     private void LoadInterfaceSettings()
     {
@@ -31,7 +34,19 @@ public sealed partial class GuildHallRuntime
         if (Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape && managementPage != 0)
         {
             managementPage = 0;
+#if UNITY_EDITOR
+            developmentToolsOpen = false;
+#endif
             Event.current.Use();
+        }
+
+        if (!isDaytime && GUI.Button(new Rect(728, 34, 180, 62), "지도", buttonStyle))
+        {
+            managementPage = 0;
+            worldMapOpen = true;
+            selectedWorldRegion = -1;
+            selectedWorldMember = -1;
+            worldMapNotice = "지역을 선택하거나 길드원을 눌러 정보를 확인하세요.";
         }
 
         string[] titles = { "설정", "길드 업그레이드", "인벤토리", "길드원", "길드정보" };
@@ -40,7 +55,12 @@ public sealed partial class GuildHallRuntime
         {
             int page = pages[i];
             if (GUI.Button(new Rect(920 + i * 192, 34, 180, 62), titles[i], managementPage == page ? selectedTabStyle : buttonStyle))
+            {
                 managementPage = managementPage == page ? 0 : page;
+#if UNITY_EDITOR
+                developmentToolsOpen = false;
+#endif
+            }
         }
     }
 
@@ -53,6 +73,9 @@ public sealed partial class GuildHallRuntime
         if (GUI.Button(new Rect(1620, 158, 72, 62), "×", buttonStyle))
         {
             managementPage = 0;
+#if UNITY_EDITOR
+            developmentToolsOpen = false;
+#endif
             return;
         }
         if (managementPage == 1) DrawSettingsPage();
@@ -64,6 +87,9 @@ public sealed partial class GuildHallRuntime
 
     private void DrawSettingsPage()
     {
+#if UNITY_EDITOR
+        if (developmentToolsOpen) { DrawDevelopmentToolsPage(); return; }
+#endif
         GUI.Box(new Rect(246, 260, 1428, 594), "", panelStyle);
         GUI.Label(new Rect(284, 292, 940, 50), "화면", headingStyle);
         if (GUI.Button(new Rect(1220, 288, 396, 60), Screen.fullScreen ? "전체 화면 끄기" : "전체 화면 켜기", buttonStyle))
@@ -84,8 +110,56 @@ public sealed partial class GuildHallRuntime
         }
 
         GUI.Label(new Rect(284, 644, 1280, 72), "설정은 다음 실행에도 유지됩니다. 음악과 효과음은 아직 제작 중입니다.", labelStyle);
-        GUI.Label(new Rect(284, 742, 1280, 72), "게임 진행 상황 저장 기능은 추후 추가할 예정입니다.", labelStyle);
+        GUI.Label(new Rect(284, 742, 850, 72), "게임 진행 상황 저장 기능은 추후 추가할 예정입니다.", labelStyle);
+#if UNITY_EDITOR
+        if (GUI.Button(new Rect(1190, 736, 420, 72), "개발용 테스트 도구", buttonStyle))
+            developmentToolsOpen = true;
+#endif
     }
+
+#if UNITY_EDITOR
+    private void DrawDevelopmentToolsPage()
+    {
+        GUI.Box(new Rect(246, 260, 1428, 594), "", panelStyle);
+        GUI.Label(new Rect(284, 280, 1320, 48), "개발용 테스트 · 에디터에서만 표시", headingStyle);
+        GUI.Label(new Rect(284, 345, 900, 54), "길드 Lv." + guildLevel + "/10 · 경험치 " + guildExperience + "/" + GuildExperienceRequired(guildLevel), headingStyle);
+        GUI.enabled = guildLevel < 10;
+        if (GUI.Button(new Rect(1260, 336, 350, 62), "길드 레벨 +1", buttonStyle))
+        {
+            AddGuildExperience(GuildExperienceRequired(guildLevel) - guildExperience);
+            ShowToast("테스트 · 길드 레벨 " + guildLevel + " 달성");
+        }
+        GUI.enabled = true;
+
+        GUI.Label(new Rect(284, 414, 1050, 42), "용사 호감도 · 버튼마다 1레벨 증가 (최대 5)", headingStyle);
+        for (int i = 0; i < guests.Count; i++)
+        {
+            Guest guest = guests[i];
+            int stage = AffinityStage(guest);
+            float y = 462 + i * 58;
+            GUI.Box(new Rect(284, y, 1326, 52), "", cardStyle);
+            GUI.Label(new Rect(304, y + 7, 940, 40), guest.name + " · " + guest.baseClass + " · 호감도 " + stage + "/5 · " +
+                (guest.guildMember ? "길드원" : guest.hasVisited ? "방문 이력 있음" : "미방문"), labelStyle);
+            GUI.enabled = stage < 5;
+            if (GUI.Button(new Rect(1260, y + 3, 340, 46), "호감도 +1레벨", buttonStyle))
+            {
+                guest.affinity = AffinityThresholdForStage(stage + 1);
+                if (guest.hasVisited && !guest.guildMember && AffinityStage(guest) >= 2)
+                    TryRecruitGuest(guest);
+                ShowToast("테스트 · " + guest.name + " 호감도 " + AffinityStage(guest) + "레벨");
+            }
+            GUI.enabled = true;
+        }
+        GUI.Label(new Rect(284, 814, 1280, 34), "미방문 용사는 방문한 뒤, 호감도 2레벨 이상이면 숙소 정원에 따라 영입됩니다.", labelStyle);
+        if (GUI.Button(new Rect(284, 864, 270, 58), "설정으로 돌아가기", tabStyle)) developmentToolsOpen = false;
+        if (GUI.Button(new Rect(1190, 864, 420, 58), "개발용 전투 테스트", buttonStyle))
+        {
+            developmentToolsOpen = false;
+            managementPage = 0;
+            combatTestSetupOpen = true;
+        }
+    }
+#endif
 
     private void SetTextSize(int value)
     {
@@ -114,43 +188,55 @@ public sealed partial class GuildHallRuntime
                 float y = 12 + i / 3 * 220;
                 GUI.Box(new Rect(x, y, 452, 180), "", panelStyle);
                 GUI.Label(new Rect(x + 26, y + 24, 396, 60), materialNames[i], headingStyle);
-                GUI.Label(new Rect(x + 26, y + 102, 396, 54), "보유  " + materials[i] + "개" + (isDaytime ? "   ·   오늘 남은 공급 " + dailySupply[i] : ""), labelStyle);
+                string materialStatus = guildLevel >= materialUnlockLevels[i]
+                    ? "보유  " + materials[i] + "개"
+                    : "보유  " + materials[i] + "개 · 길드 레벨 " + materialUnlockLevels[i] + " 해금";
+                GUI.Label(new Rect(x + 26, y + 102, 396, 54), materialStatus, labelStyle);
             }
             GUI.EndScrollView();
         }
         else
         {
             ShopItem[] items = inventory[inventoryPage - 1];
+            Rect view = new Rect(228, 338, 1480, 600);
+            inventoryScrollPosition = GUI.BeginScrollView(view, inventoryScrollPosition, new Rect(0, 0, 1440, Mathf.Max(600, Mathf.CeilToInt(items.Length / 4f) * 190)));
             for (int i = 0; i < items.Length; i++)
             {
-                float x = 246 + i % 3 * 480;
-                float y = 358 + i / 3 * 220;
-                GUI.Box(new Rect(x, y, 452, 180), "", panelStyle);
-                GUI.Label(new Rect(x + 26, y + 22, 396, 60), items[i].name, headingStyle);
-                GUI.Label(new Rect(x + 26, y + 100, 396, 54), "판매 재고 " + items[i].stock + "개   ·   가격 " + items[i].price + " G", labelStyle);
+                float x = 8 + i % 4 * 356;
+                float y = 8 + i / 4 * 190;
+                GUI.Box(new Rect(x, y, 340, 172), "", panelStyle);
+                DrawPixelItemIcon(new Rect(x + 10, y + 26, 100, 116), items[i].icon);
+                GUI.Label(new Rect(x + 122, y + 26, 206, 52), items[i].name, headingStyle);
+                GUI.Label(new Rect(x + 122, y + 86, 206, 58), "판매 재고 " + items[i].stock + "개\n가격 " + items[i].price + " G", labelStyle);
             }
-            GUI.Label(new Rect(254, 680, 1350, 80), "재고는 낮에 제작하고, 밤에 판매하면 차감됩니다.", labelStyle);
+            GUI.EndScrollView();
+            GUI.Label(new Rect(254, 680, 1350, 80), "재고는 밤에 길드 작업장에서 제작하고, 판매하면 차감됩니다. 새날에 자동 보충되지 않습니다.", labelStyle);
         }
     }
 
+    private Vector2 memberListScroll;
     private void DrawMembersPage()
     {
         int memberCount = 0;
+        memberListScroll = GUI.BeginScrollView(new Rect(246,264,1440,592),memberListScroll,
+            new Rect(0,0,1410,Mathf.Max(592,Mathf.CeilToInt(GuildMemberCount()/2f)*214)),false,true);
         for (int i = 0; i < guests.Count; i++)
         {
             Guest guest = guests[i];
             if (!guest.guildMember) continue;
-            float x = 246 + (memberCount % 2) * 730;
-            float y = 264 + (memberCount / 2) * 214;
+            float x = (memberCount % 2) * 710;
+            float y = (memberCount / 2) * 214;
             GUI.Box(new Rect(x, y, 696, 190), "", panelStyle);
             DrawGuestPortrait(new Rect(x + 16, y + 16, 144, 158), i);
-            GUI.Label(new Rect(x + 178, y + 20, 488, 44), guest.name + " · " + guest.role, headingStyle);
-            GUI.Label(new Rect(x + 178, y + 70, 488, 44), "레벨 " + guest.level + "   호감도 " + guest.affinity + "/5", labelStyle);
-            GUI.Label(new Rect(x + 178, y + 116, 488, 50), "보유 골드 " + guest.gold + " G   의뢰 경험 " + guest.experience, labelStyle);
+            GUI.Label(new Rect(x + 178, y + 20, 488, 44), guest.name + " · " + guest.baseClass, headingStyle);
+            GUI.Label(new Rect(x + 178, y + 70, 488, 38), "레벨 " + guest.level + "   호감도 " + AffinityStage(guest) + "/5", labelStyle);
+            GUI.Label(new Rect(x + 178, y + 108, 488, 36), "보유 골드 " + guest.gold + " G   경험치 " + guest.trainingExperience + "/" + HeroExperienceRequired(guest.level), labelStyle);
+            GUI.Label(new Rect(x + 178, y + 148, 488, 34), HeroStatsLabel(guest), labelStyle);
             memberCount++;
         }
+        GUI.EndScrollView();
         if (memberCount == 0) GUI.Label(new Rect(256, 340, 1300, 60), "아직 길드에 소속된 용사가 없습니다.", headingStyle);
-        GUI.Label(new Rect(246, 876, 1420, 46), "길드원 " + memberCount + "명 · 방문 용사의 호감도가 3이 되면 영입됩니다.", labelStyle);
+        GUI.Label(new Rect(246, 876, 1420, 46), "길드원 " + memberCount + "명 · 호감도 2단계(누적 50점)에 도달하면 영입됩니다.", labelStyle);
     }
 
     private void DrawGuildInformationPage()
@@ -160,7 +246,7 @@ public sealed partial class GuildHallRuntime
         GUI.Box(new Rect(246, 270, 690, 530), "", panelStyle);
         GUI.Box(new Rect(980, 270, 690, 530), "", panelStyle);
         GUI.Label(new Rect(284, 306, 620, 58), "길드 레벨 " + guildLevel, headingStyle);
-        GUI.Label(new Rect(284, 386, 620, 58), "레벨 경험치 " + guildExperience + " / " + guildLevel * 20, labelStyle);
+        GUI.Label(new Rect(284, 386, 620, 58), "레벨 경험치 " + guildExperience + " / " + GuildExperienceRequired(guildLevel), labelStyle);
         GUI.Label(new Rect(284, 456, 620, 58), "금고 " + guildGold + " G", labelStyle);
         GUI.Label(new Rect(284, 526, 620, 58), "현재 DAY " + day.ToString("00") + (isDaytime ? " · 낮" : " · 밤"), labelStyle);
         GUI.Label(new Rect(1018, 306, 620, 58), "길드 기록", headingStyle);
@@ -168,6 +254,6 @@ public sealed partial class GuildHallRuntime
         GUI.Label(new Rect(1018, 456, 620, 58), "총 판매 " + totalSales + "건", labelStyle);
         GUI.Label(new Rect(1018, 526, 620, 58), "간단 의뢰 성공 " + successfulRequests + "건", labelStyle);
         GUI.Label(new Rect(284, 702, 1300, 58), "간단 의뢰에 성공하면 길드 경험치가 올라갑니다.", labelStyle);
-        GUI.Label(new Rect(254, 842, 1380, 66), "새 용사·상품·의뢰 해금과 마왕 토벌 목표는 후속 개발 단계입니다.", labelStyle);
+        GUI.Label(new Rect(254, 842, 1380, 66), "좌석 " + NightVisitorCapacity() + "석 · 숙소 " + GuildMemberCount() + "/" + GuildMemberCapacity() + "명 · 평균 방문 수요 " + ((5 + guildLevel) * VisitorChance()).ToString("0.##") + "명 (좌석 한도 적용 전)", labelStyle);
     }
 }

@@ -17,10 +17,12 @@ public sealed class GuildHallPresentation : MonoBehaviour
         public Seat(float x, float y, bool left, float size, int depth)
         { hip = new Vector2(x, y); faceLeft = left; scale = size; order = depth; }
     }
+    // Furniture is grouped by seat index: left table (0-1), middle (2-3), right (4-5).
     public static readonly Seat[] Seats = {
         new Seat(187, 647, false, .54f, 10), new Seat(476, 641, true, .54f, 10),
         new Seat(680, 763, false, .60f, 30), new Seat(1093, 766, true, .60f, 30),
-        new Seat(1230, 626, false, .52f, 10), new Seat(1540, 623, true, .52f, 10)
+        new Seat(1230, 626, false, .52f, 10), new Seat(1540, 623, true, .52f, 10),
+        new Seat(938, 472, true, .43f, -90)
     };
     // Hip positions measured within each full 512 x 512 character cell, top-left origin.
     private static readonly Vector2[] Hips = {
@@ -32,6 +34,8 @@ public sealed class GuildHallPresentation : MonoBehaviour
     public int[] SeatForGuest { get; private set; }
     public SpriteRenderer[] Renderers { get; private set; }
     private GuestSpriteMotion[] motions;
+    private int[] artwork;
+    private Sprite[] guestSprites;
     private readonly List<UnityEngine.Object> owned = new List<UnityEngine.Object>();
     private GameObject root;
     private Camera roomCamera;
@@ -73,6 +77,8 @@ public sealed class GuildHallPresentation : MonoBehaviour
         background.sortingOrder = -100;
         root = new GameObject("Guild Hall - Seated Guests and Table Fronts");
         Portraits = new Texture2D[GuestCount];
+        guestSprites = new Sprite[GuestCount];
+        artwork = new int[GuestCount];
         Renderers = new SpriteRenderer[GuestCount];
         motions = new GuestSpriteMotion[GuestCount];
         Color32[] all = atlas.GetPixels32();
@@ -91,6 +97,8 @@ public sealed class GuildHallPresentation : MonoBehaviour
             Vector2 pivot = new Vector2(Hips[i].x / 512f, 1 - Hips[i].y / 512f);
             Sprite sprite = Sprite.Create(texture, new Rect(0,0,cellW,cellH), pivot, Ppu, 0, SpriteMeshType.FullRect);
             owned.Add(sprite);
+            guestSprites[i] = sprite;
+            artwork[i] = i;
             GameObject actor = new GameObject("Seated Guest " + i);
             actor.transform.SetParent(root.transform, false);
             Renderers[i] = actor.AddComponent<SpriteRenderer>(); Renderers[i].sprite = sprite;
@@ -110,22 +118,47 @@ public sealed class GuildHallPresentation : MonoBehaviour
         Reseat(seed, allGuests);
     }
 
-    public void Reseat(int seed, IReadOnlyList<int> activeGuests)
+    public void ConfigureGuests(int[] portraitIndices)
     {
-        var order = new int[Seats.Length]; for (int i=0; i<order.Length; i++) order[i]=i;
+        if (!ready) return;
+        var renderers = Renderers;
+        int oldCount = renderers.Length;
+        Array.Resize(ref renderers, portraitIndices.Length);
+        Array.Resize(ref motions, portraitIndices.Length);
+        Renderers = renderers;
+        artwork = (int[])portraitIndices.Clone();
+        for(int i=0;i<artwork.Length;i++)
+        {
+            artwork[i] = Mathf.Clamp(artwork[i],0,GuestCount-1);
+            if(i>=oldCount)
+            {
+                var actor = new GameObject("Seated Guest " + i);
+                actor.transform.SetParent(root.transform,false);
+                Renderers[i]=actor.AddComponent<SpriteRenderer>();
+                motions[i]=actor.AddComponent<GuestSpriteMotion>();
+            }
+            Renderers[i].sprite=guestSprites[artwork[i]];
+        }
+    }
+
+    public void Reseat(int seed, IReadOnlyList<int> activeGuests, int capacity = GuestCount)
+    {
+        // Expansion reveals furniture seats in order: 2, 3, 4, 5, then 6.
+        int usableSeats = Mathf.Clamp(capacity, 0, Mathf.Min(GuestCount, Seats.Length));
+        var order = new int[usableSeats]; for (int i=0; i<order.Length; i++) order[i]=i;
         var random = new System.Random(seed);
         for (int i=order.Length-1; i>0; i--) { int j=random.Next(i+1); int t=order[i]; order[i]=order[j]; order[j]=t; }
-        SeatForGuest = new int[GuestCount];
-        for (int i=0; i<GuestCount; i++) { SeatForGuest[i] = -1; Renderers[i].enabled = false; }
-        for (int seatIndex=0; seatIndex<activeGuests.Count && seatIndex<Seats.Length; seatIndex++)
+        SeatForGuest = new int[Renderers.Length];
+        for (int i=0; i<Renderers.Length; i++) { SeatForGuest[i] = -1; Renderers[i].enabled = false; }
+        for (int seatIndex=0; seatIndex<activeGuests.Count && seatIndex<order.Length; seatIndex++)
         {
             int guest = activeGuests[seatIndex];
-            if (guest < 0 || guest >= GuestCount) continue;
+            if (guest < 0 || guest >= Renderers.Length || SeatForGuest[guest]>=0) continue;
             int seatIndexShuffled = order[seatIndex];
             Seat seat = Seats[seatIndexShuffled];
             SeatForGuest[guest] = seatIndexShuffled;
             Renderers[guest].enabled = true;
-            Renderers[guest].flipX = seat.faceLeft != SourceFacesLeft[guest];
+            Renderers[guest].flipX = seat.faceLeft != SourceFacesLeft[artwork[guest]];
             Renderers[guest].sortingOrder = seat.order;
             motions[guest].Initialize(Point(seat.hip), Vector3.one * seat.scale, guest * .8f);
             motions[guest].SetHovered(false);
@@ -205,15 +238,16 @@ public sealed class GuildHallPresentation : MonoBehaviour
     {
         if (!ready) return -1;
         Vector3 world = roomCamera.ScreenToWorldPoint(new Vector3(screenPoint.x,screenPoint.y,10));
-        for (int i=GuestCount-1; i>=0; i--)
+        for (int i=Renderers.Length-1; i>=0; i--)
         {
             var sr = Renderers[i];
             if (!sr.enabled || SeatForGuest[i] < 0) continue;
             Vector3 local = sr.transform.InverseTransformPoint(world);
             float px = local.x * Ppu * (sr.flipX ? -1 : 1) + sr.sprite.pivot.x;
             float py = local.y * Ppu + sr.sprite.pivot.y;
-            if (px<0 || py<0 || px>=Portraits[i].width || py>=Portraits[i].height) continue;
-            if (Portraits[i].GetPixel((int)px,(int)py).a < .3f) continue;
+            Texture2D portrait = Portraits[artwork[i]];
+            if (px<0 || py<0 || px>=portrait.width || py>=portrait.height) continue;
+            if (portrait.GetPixel((int)px,(int)py).a < .3f) continue;
             // A table-covered lower body must not steal clicks from the room.
             Seat seat = Seats[SeatForGuest[i]];
             if (world.y < Point(seat.hip).y + .20f) continue;
